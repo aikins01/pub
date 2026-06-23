@@ -189,6 +189,7 @@ Consider using the Dart 2.19 sdk to migrate to null safety.''');
       _validateUpgradeTargetEntrypoints(
         validatePlainTargets: argResults.flag('unlock-transitive'),
       );
+      _validateUpgradeTargetConstraintsOverlap();
     }
 
     if (_upgradeMajorVersions) {
@@ -616,6 +617,62 @@ be direct 'dependencies' or 'dev_dependencies', following packages are not:
         'latest versions of your dependencies.',
       );
     }
+  }
+
+  void _validateUpgradeTargetConstraintsOverlap() {
+    if (_upgradeMajorVersions) return;
+
+    for (final target in _upgradeTargets) {
+      if (target.kind != _UpgradeTargetKind.constraint) continue;
+      final targetConstraint = target.constraint!;
+
+      // Overrides apply to the entire workspace and take precedence.
+      final override = entrypoint.workspaceRoot.allOverridesInWorkspace[target.name];
+      if (override != null) {
+        final declaredConstraint = override.constraint;
+        if (!declaredConstraint.allowsAny(targetConstraint)) {
+          _reportOverlapError(target.name, targetConstraint, declaredConstraint, isOverride: true);
+        }
+        continue;
+      }
+
+      // Check all workspace packages that depend on this package.
+      for (final workspacePackage in entrypoint.workspaceRoot.transitiveWorkspace) {
+        final dep = workspacePackage.dependencies[target.name] ??
+            workspacePackage.devDependencies[target.name];
+        if (dep != null) {
+          final declaredConstraint = dep.constraint;
+          if (!declaredConstraint.allowsAny(targetConstraint)) {
+            _reportOverlapError(
+              target.name,
+              targetConstraint,
+              declaredConstraint,
+              packageName: workspacePackage.name,
+            );
+          }
+        }
+      }
+    }
+  }
+
+  void _reportOverlapError(
+    String name,
+    VersionConstraint targetConstraint,
+    VersionConstraint declaredConstraint, {
+    bool isOverride = false,
+    String? packageName,
+  }) {
+    final context = isOverride
+        ? 'dependency override'
+        : (packageName != null && packageName != entrypoint.workspaceRoot.name)
+            ? 'constraint in workspace package `$packageName`'
+            : 'constraint in `pubspec.yaml`';
+    dataError(
+      'The constraint `$targetConstraint` for package `$name` does not overlap with the '
+      'declared $context (`$declaredConstraint`).\n'
+      'To upgrade to a version outside the current constraint, run '
+      '`$topLevelProgram pub upgrade --major-versions $name`.',
+    );
   }
 }
 

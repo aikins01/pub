@@ -841,4 +841,41 @@ void main() {
       output: allOf(contains('> bar 1.5.0'), isNot(contains('bar 2.0.0'))),
     );
   });
+
+  test('`dependency@constraint` fails early and suggests --major-versions when there is no overlap with root constraints', () async {
+    await servePackages();
+
+    await d.appDir(dependencies: {'foo': '^1.0.0'}).create();
+
+    await pubUpgrade(
+      args: ['foo@2.0.0'],
+      error: allOf(
+        contains('The constraint `2.0.0` for package `foo` does not overlap with the declared constraint in `pubspec.yaml` (`^1.0.0`).'),
+        contains('To upgrade to a version outside the current constraint, run `dart pub upgrade --major-versions foo`.'),
+      ),
+      exitCode: exit_codes.DATA,
+    );
+  });
+
+  test('`dependency@constraint` fails early and suggests --major-versions when there is no overlap with override constraints', () async {
+    await servePackages();
+
+    await d.appDir(
+      dependencies: {'foo': '^1.0.0'},
+      pubspec: {
+        'dependency_overrides': {
+          'foo': '1.0.0',
+        },
+      },
+    ).create();
+
+    await pubUpgrade(
+      args: ['foo@2.0.0'],
+      error: allOf(
+        contains('The constraint `2.0.0` for package `foo` does not overlap with the declared dependency override (`1.0.0`).'),
+        contains('To upgrade to a version outside the current constraint, run `dart pub upgrade --major-versions foo`.'),
+      ),
+      exitCode: exit_codes.DATA,
+    );
+  });
 }
